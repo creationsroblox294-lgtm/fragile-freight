@@ -26,7 +26,12 @@ The server builds the map from code (`src/server/MapBuilder.luau`), so the place
 empty apart from what Rojo syncs. Delete the default Baseplate part so it doesn't overlap
 the map.
 
-To build a place file without Studio running:
+**No Rojo?** This builds a place file with only Python, which you can open directly in Studio:
+```bash
+python3 scripts/build_rbxlx.py
+```
+
+To build a place file with Rojo instead:
 ```bash
 rojo build -o FragileFreight.rbxl
 ```
