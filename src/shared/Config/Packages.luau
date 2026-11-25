@@ -52,14 +52,14 @@ local Packages: { [string]: PackageDef } = {
 		ballastFraction = 0.4,
 		friction = 0.4,
 		elasticity = 0.05,
-		orientationResponsiveness = 10,
-		orientationTorque = 120,
+		orientationResponsiveness = 14,
+		orientationTorque = 220,
 		walkSpeedMultiplier = 0.95,
 
 		fragility = 16,
 		fragilityMultiplier = 3.5,
-		tiltLimit = 30,
-		tiltDamagePerSecond = 40,
+		tiltLimit = 35,
+		tiltDamagePerSecond = 30,
 
 		visual = {
 			{ name = "Tier1", size = Vector3.new(1.2, 2.6, 2.6), offset = Vector3.new(0, -1.2, 0), color = Color3.fromRGB(255, 248, 235), shape = Enum.PartType.Cylinder },

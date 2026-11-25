@@ -11,6 +11,9 @@ Hud.onDrop = function() end
 Hud.onRotate = function() end
 Hud.onGetUp = function() end
 
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Tuning = require(ReplicatedStorage:WaitForChild("Shared").Config.Tuning)
+
 local player = Players.LocalPlayer
 local FONT = Enum.Font.FredokaOne
 
@@ -21,6 +24,7 @@ local orderTitle: TextLabel
 local orderTimer: TextLabel
 local conditionFill: Frame
 local conditionText: TextLabel
+local debugText: TextLabel
 local dropButton: TextButton
 local rotateButton: TextButton
 local getUpButton: TextButton
@@ -85,6 +89,18 @@ local function conditionColor(c: number): Color3
 		return Color3.fromRGB(240, 190, 60)
 	end
 	return Color3.fromRGB(230, 70, 60)
+end
+
+-- Playtest readout: what last cost the package condition, and how much.
+function Hud.setDebugHit(hit: { deltaV: number, damage: number, source: string, hit: string }?)
+	if not Tuning.DEBUG_HUD or not hit then
+		return
+	end
+	if hit.source == "tilt" then
+		debugText.Text = string.format("tilt %.0f° → -%.1f", hit.deltaV, hit.damage)
+	else
+		debugText.Text = string.format("hit %s at %.0f studs/s → -%.1f", hit.hit, hit.deltaV, hit.damage)
+	end
 end
 
 function Hud.setCondition(c: number)
@@ -160,6 +176,7 @@ function Hud.setOrder(order: { displayName: string, destinationName: string, des
 	orderStartedAt = os.clock()
 	destinationZone = order.destination
 	orderPanel.Visible = true
+	debugText.Text = ""
 	Hud.setCondition(100)
 	attachWaypoint()
 end
@@ -220,7 +237,7 @@ local function build()
 	})
 
 	orderPanel = Instance.new("Frame")
-	orderPanel.Size = UDim2.fromOffset(380, 108)
+	orderPanel.Size = UDim2.fromOffset(380, Tuning.DEBUG_HUD and 130 or 108)
 	orderPanel.AnchorPoint = Vector2.new(0.5, 0)
 	orderPanel.Position = UDim2.new(0.5, 0, 0, 8)
 	orderPanel.BackgroundColor3 = Color3.fromRGB(25, 30, 45)
@@ -248,6 +265,13 @@ local function build()
 	corner(conditionFill, 8)
 	conditionFill.Parent = bar
 	conditionText = text(bar, { Size = UDim2.fromScale(1, 1), Text = "100%", ZIndex = 2 })
+	debugText = text(orderPanel, {
+		Size = UDim2.new(1, -20, 0, 20),
+		Position = UDim2.fromOffset(10, 104),
+		Text = "",
+		TextColor3 = Color3.fromRGB(255, 200, 120),
+		Visible = Tuning.DEBUG_HUD,
+	})
 
 	dropButton = button("Drop", UDim2.new(1, -24, 1, -150), Color3.fromRGB(200, 80, 70), function()
 		Hud.onDrop()

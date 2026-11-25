@@ -48,7 +48,12 @@ local function finish(order: Order, condition: number)
 	orderByPackage[order.package.id] = nil
 	lastOrderAt[order.player] = os.clock()
 
-	local result = PayoutService.score(order.player, order, condition, order.package.flag)
+	local pkg = order.package
+	local result = PayoutService.score(order.player, order, condition, pkg.flag, {
+		impact = pkg.impactDamageTotal,
+		tilt = pkg.tiltDamageTotal,
+		hits = pkg.hits,
+	})
 	if result.delivered then
 		local stats = order.player:FindFirstChild("leaderstats")
 		local deliveries = stats and stats:FindFirstChild("Deliveries") :: IntValue?

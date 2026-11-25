@@ -20,6 +20,9 @@ local Tuning = {
 	-- Damage (GDD §3.3)
 	SAMPLE_RATE = 20, -- server velocity samples per second
 	CONDITION_UPDATE_RATE = 5, -- ConditionUpdate remote, max per second
+	CONTACT_WINDOW = 0.15, -- seconds a Touched contact keeps the impact gate open
+	CONTACT_PADDING = 0.5, -- studs added to the package box when checking for contact
+	DEBUG_HUD = true, -- show last hit / damage source under the condition bar (playtests)
 	MAX_PACKAGE_SPEED = 90, -- studs/s; faster than this voids the delivery
 	MAX_TELEPORT_DISTANCE = 25, -- studs between two samples
 	VOID_Y = -60, -- package below this height breaks

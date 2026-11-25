@@ -50,7 +50,9 @@ type Order = {
 }
 
 -- condition 0 = broken. flag = anti-exploit reason from PackageService, if any.
-function PayoutService.score(player: Player, order: Order, condition: number, flag: string?): Result
+export type DamageBreakdown = { impact: number, tilt: number, hits: number }
+
+function PayoutService.score(player: Player, order: Order, condition: number, flag: string?, breakdown: DamageBreakdown?): Result
 	local elapsed = os.clock() - order.startedAt
 	local rejected: string? = flag
 	if not rejected and condition > 0 and elapsed < order.minTime then
@@ -94,9 +96,11 @@ function PayoutService.score(player: Player, order: Order, condition: number, fl
 
 	-- GDD §9 per-delivery analytics. Printed for M0 playtests; AnalyticsService in M2.
 	print(string.format(
-		"[Delivery] %s %s cond=%d time=%.1fs par=%.1fs broke=%s paid=%d%s",
+		"[Delivery] %s %s cond=%d time=%.1fs par=%.1fs broke=%s paid=%d impactDmg=%.0f (%d hits) tiltDmg=%.0f%s",
 		player.Name, order.packageName, result.condition, elapsed, order.parTime,
-		tostring(result.broke), result.total, rejected and (" REJECTED " .. rejected) or ""
+		tostring(result.broke), result.total,
+		breakdown and breakdown.impact or 0, breakdown and breakdown.hits or 0, breakdown and breakdown.tilt or 0,
+		rejected and (" REJECTED " .. rejected) or ""
 	))
 	return result
 end

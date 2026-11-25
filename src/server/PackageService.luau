@@ -45,6 +45,13 @@ export type Package = {
 	lastConditionSentAt: number,
 	maxSpeed: number,
 	flag: string?, -- set when an anti-exploit check trips
+
+	-- contact gate + damage telemetry
+	lastContactAt: number,
+	impactDamageTotal: number,
+	tiltDamageTotal: number,
+	hits: number,
+	lastHit: { deltaV: number, damage: number, source: string, hit: string }?,
 }
 
 -- Hooks set by OrderService.
@@ -291,12 +298,23 @@ function PackageService.spawn(owner: Player, packageId: string, cframe: CFrame, 
 		lastConditionSentAt = 0,
 		maxSpeed = 0,
 		flag = nil,
+		lastContactAt = 0,
+		impactDamageTotal = 0,
+		tiltDamageTotal = 0,
+		hits = 0,
+		lastHit = nil,
 	}
 	model:SetAttribute("Condition", 100)
 	active[pkg.id] = pkg
 
 	prompt.Triggered:Connect(function(player)
 		PackageService.pickup(pkg, player)
+	end)
+	-- Touched only feeds the contact gate (see touchingSomething); it never deals damage itself.
+	root.Touched:Connect(function(other)
+		if not other:IsDescendantOf(model) then
+			pkg.lastContactAt = os.clock()
+		end
 	end)
 	return pkg
 end
@@ -345,6 +363,34 @@ local function breakApart(pkg: Package)
 	PackageService.onBroken(pkg)
 end
 
+--[[
+	Impact damage only counts while the package is touching something. Walking, stopping and
+	turning yank the package around through the grip, which looks like an impact to a pure
+	delta-v check (the M0 playtest cake broke in 5.7 s that way). A real hit always comes with
+	contact: a pole, a wall, the ground after a drop. The carrier's own body can't count, since
+	carried packages don't collide with characters at all.
+]]
+local contactParams = OverlapParams.new()
+contactParams.FilterType = Enum.RaycastFilterType.Exclude
+contactParams.RespectCanCollide = true
+
+local function touchingSomething(pkg: Package, now: number): (boolean, string)
+	if now - pkg.lastContactAt <= Tuning.CONTACT_WINDOW then
+		return true, "touch"
+	end
+	local exclude: { Instance } = { pkg.model }
+	if pkg.holder and pkg.holder.Character then
+		table.insert(exclude, pkg.holder.Character)
+	end
+	contactParams.FilterDescendantsInstances = exclude
+	local pad = Vector3.one * Tuning.CONTACT_PADDING
+	local parts = workspace:GetPartBoundsInBox(pkg.root.CFrame, pkg.root.Size + pad, contactParams)
+	if #parts > 0 then
+		return true, parts[1].Name
+	end
+	return false, ""
+end
+
 local function sendCondition(pkg: Package, force: boolean?)
 	local now = os.clock()
 	local rounded = math.floor(pkg.condition + 0.5)
@@ -355,7 +401,7 @@ local function sendCondition(pkg: Package, force: boolean?)
 	pkg.lastConditionSentAt = now
 	pkg.model:SetAttribute("Condition", rounded)
 	if pkg.owner.Parent then
-		Remotes.get("ConditionUpdate"):FireClient(pkg.owner, rounded)
+		Remotes.get("ConditionUpdate"):FireClient(pkg.owner, rounded, pkg.lastHit)
 	end
 end
 
@@ -387,10 +433,24 @@ local function sample(pkg: Package, now: number)
 	local damage = 0
 	if not inGrace then
 		local deltaV = Scoring.impactDeltaV(pkg.lastVelocity, velocity, dt, workspace.Gravity)
-		damage += Scoring.impactDamage(deltaV, pkg.def.fragility, pkg.def.fragilityMultiplier, pkg.mutationMultiplier)
+		if deltaV > pkg.def.fragility then
+			local touching, hitName = touchingSomething(pkg, now)
+			if touching then
+				local impact = Scoring.impactDamage(deltaV, pkg.def.fragility, pkg.def.fragilityMultiplier, pkg.mutationMultiplier)
+				damage += impact
+				pkg.impactDamageTotal += impact
+				pkg.hits += 1
+				pkg.lastHit = { deltaV = deltaV, damage = impact, source = "impact", hit = hitName }
+			end
+		end
 	end
 	local tilt = Scoring.tiltAngle(root.CFrame.UpVector)
-	damage += Scoring.tiltDamage(tilt, pkg.def.tiltLimit, pkg.def.tiltDamagePerSecond, dt)
+	local tiltDamage = Scoring.tiltDamage(tilt, pkg.def.tiltLimit, pkg.def.tiltDamagePerSecond, dt)
+	if tiltDamage > 0 then
+		damage += tiltDamage
+		pkg.tiltDamageTotal += tiltDamage
+		pkg.lastHit = { deltaV = tilt, damage = tiltDamage, source = "tilt", hit = "" }
+	end
 
 	pkg.lastVelocity = velocity
 	pkg.lastPosition = position

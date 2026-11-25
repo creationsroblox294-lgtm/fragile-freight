@@ -12,7 +12,7 @@ local EVENTS = {
 	"RequestRotate", -- () turn the carried package 90 degrees (fit ladders through doors)
 	-- server -> client
 	"OrderRolled", -- (order: {packageId, displayName, destinationName, destination: BasePart, parTime})
-	"ConditionUpdate", -- (condition: number)
+	"ConditionUpdate", -- (condition: number, lastHit: {deltaV, damage, source, hit}?)
 	"DeliveryResult", -- (result: {...})
 	"ForceRagdoll", -- (impulse: Vector3) a hazard hit you; the client applies the fling
 	"CarryChanged", -- (package: Model?) you picked up / lost the package
