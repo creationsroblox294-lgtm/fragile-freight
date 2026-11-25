@@ -181,7 +181,7 @@ function PackageService.drop(pkg: Package)
 end
 
 function PackageService.pickup(pkg: Package, player: Player): boolean
-	if pkg.broken or pkg.holder or player ~= pkg.owner then
+	if pkg.broken or pkg.holder or player ~= pkg.owner or not pkg.root:IsDescendantOf(workspace) then
 		return false
 	end
 	local hrp = getRootPart(player)
