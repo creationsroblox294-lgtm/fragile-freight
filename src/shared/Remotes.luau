@@ -16,6 +16,9 @@ local EVENTS = {
 	"DeliveryResult", -- (result: {...})
 	"ForceRagdoll", -- (impulse: Vector3) a hazard hit you; the client applies the fling
 	"CarryChanged", -- (package: Model?) you picked up / lost the package
+	"OrderRevealing", -- (reveal: {rarity, mutation, packageId, displayName, pityUsed}) crate-open starts
+	"Announcement", -- (text: string, color: Color3) server-wide banner
+	"ProfileSync", -- (snapshot) coins, tips, index, depot, pity, luck — for Index/Depot/odds UI
 }
 
 local FOLDER_NAME = "Remotes"

@@ -7,11 +7,11 @@ local CollisionGroups = require(script.CollisionGroups)
 local MapBuilder = require(script.MapBuilder)
 local CharacterService = require(script.CharacterService)
 local PackageService = require(script.PackageService)
-local PayoutService = require(script.PayoutService)
+local DataService = require(script.DataService)
 local OrderService = require(script.OrderService)
 
 CollisionGroups.init()
-PayoutService.init()
+DataService.init()
 PackageService.init()
 CharacterService.init()
 

@@ -10,6 +10,8 @@ local HttpService = game:GetService("HttpService")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Packages = require(Shared.Config.Packages)
+local Rarities = require(Shared.Config.Rarities)
+local Mutations = require(Shared.Config.Mutations)
 local Tuning = require(Shared.Config.Tuning)
 local Scoring = require(Shared.Scoring)
 local Remotes = require(Shared.Remotes)
@@ -23,7 +25,10 @@ export type Package = {
 	model: Model,
 	root: BasePart,
 	owner: Player,
-	mutationMultiplier: number,
+	rarity: string,
+	mutation: string,
+	damageMultiplier: number, -- rarity fragility x mutation (Glass = x2)
+	nextHauntAt: number,
 	condition: number,
 	broken: boolean,
 	holder: Player?,
@@ -68,7 +73,8 @@ local function densityFor(mass: number, size: Vector3): number
 	return math.clamp(mass / (size.X * size.Y * size.Z), 0.01, 100)
 end
 
-local function buildModel(def: Packages.PackageDef): (Model, BasePart)
+local function buildModel(def: Packages.PackageDef, mutation: Mutations.MutationDef): (Model, BasePart)
+	local mass = def.mass * mutation.massMultiplier
 	local model = Instance.new("Model")
 	model.Name = def.id
 
@@ -78,9 +84,11 @@ local function buildModel(def: Packages.PackageDef): (Model, BasePart)
 	root.Transparency = 1
 	root.RootPriority = 10
 	root.CustomPhysicalProperties = PhysicalProperties.new(
-		densityFor(def.mass * (1 - def.ballastFraction), def.rootSize),
+		densityFor(mass * (1 - def.ballastFraction), def.rootSize),
 		def.friction,
-		def.elasticity
+		mutation.elasticity or def.elasticity,
+		1,
+		if mutation.elasticity then 100 else 1 -- Bouncy wins every contact
 	)
 	root.Parent = model
 	model.PrimaryPart = root
@@ -93,9 +101,12 @@ local function buildModel(def: Packages.PackageDef): (Model, BasePart)
 			p.Name = spec.name
 			p.Shape = spec.shape or Enum.PartType.Block
 			p.Size = spec.size
-			p.Color = spec.color
-			p.Material = spec.material or Enum.Material.SmoothPlastic
+			p.Color = mutation.tint or spec.color
+			p.Material = mutation.material or spec.material or Enum.Material.SmoothPlastic
 			p.Transparency = spec.transparency or 0
+			if mutation.id == "Glass" then
+				p.Transparency = math.max(p.Transparency, 0.35)
+			end
 			p.CanCollide = false
 			p.CanQuery = false
 			p.Massless = true
@@ -123,7 +134,7 @@ local function buildModel(def: Packages.PackageDef): (Model, BasePart)
 		ballast.CanCollide = false
 		ballast.CanQuery = false
 		ballast.CanTouch = false
-		ballast.CustomPhysicalProperties = PhysicalProperties.new(densityFor(def.mass * def.ballastFraction, ballast.Size))
+		ballast.CustomPhysicalProperties = PhysicalProperties.new(densityFor(mass * def.ballastFraction, ballast.Size))
 		ballast.CFrame = root.CFrame * CFrame.new(def.comOffset)
 		local weld = Instance.new("WeldConstraint")
 		weld.Part0 = root
@@ -250,10 +261,29 @@ function PackageService.rotate(pkg: Package)
 	end
 end
 
-function PackageService.spawn(owner: Player, packageId: string, cframe: CFrame, mutationMultiplier: number?): Package
+export type SpawnOptions = { rarity: string?, mutation: string? }
+
+function PackageService.spawn(owner: Player, packageId: string, cframe: CFrame, options: SpawnOptions?): Package
 	local def = Packages[packageId]
+	local rarity = Rarities.byId[options and options.rarity or "Common"] or Rarities.byId.Common
+	local mutation = Mutations.byId[options and options.mutation or "None"] or Mutations.byId.None
 	assert(def, "Unknown package " .. packageId)
-	local model, root = buildModel(def)
+	local model, root = buildModel(def, mutation)
+
+	if mutation.haunted then
+		-- Ghostly float: cancel part of gravity on the whole assembly.
+		local floatAttachment = Instance.new("Attachment")
+		floatAttachment.Name = "Float"
+		floatAttachment.Parent = root
+		local float = Instance.new("VectorForce")
+		float.Attachment0 = floatAttachment
+		float.RelativeTo = Enum.ActuatorRelativeTo.World
+		float.ApplyAtCenterOfMass = true
+		float.Parent = root
+		task.defer(function()
+			float.Force = Vector3.new(0, root.AssemblyMass * workspace.Gravity * Mutations.HAUNTED_FLOAT, 0)
+		end)
+	end
 
 	local grip = Instance.new("Attachment")
 	grip.Name = "Grip"
@@ -270,6 +300,8 @@ function PackageService.spawn(owner: Player, packageId: string, cframe: CFrame, 
 
 	model:PivotTo(cframe)
 	model:SetAttribute("PackageId", def.id)
+	model:SetAttribute("Rarity", rarity.id)
+	model:SetAttribute("Mutation", mutation.id)
 	model:SetAttribute("Owner", owner.UserId)
 	CollisionGroups.setModel(model, CollisionGroups.Package)
 	model.Parent = packagesFolder
@@ -280,7 +312,10 @@ function PackageService.spawn(owner: Player, packageId: string, cframe: CFrame, 
 		model = model,
 		root = root,
 		owner = owner,
-		mutationMultiplier = mutationMultiplier or 1,
+		rarity = rarity.id,
+		mutation = mutation.id,
+		damageMultiplier = rarity.fragilityMultiplier * mutation.damageMultiplier,
+		nextHauntAt = os.clock() + 2,
 		condition = 100,
 		broken = false,
 		holder = nil,
@@ -436,7 +471,7 @@ local function sample(pkg: Package, now: number)
 		if deltaV > pkg.def.fragility then
 			local touching, hitName = touchingSomething(pkg, now)
 			if touching then
-				local impact = Scoring.impactDamage(deltaV, pkg.def.fragility, pkg.def.fragilityMultiplier, pkg.mutationMultiplier)
+				local impact = Scoring.impactDamage(deltaV, pkg.def.fragility, pkg.def.fragilityMultiplier, pkg.damageMultiplier)
 				damage += impact
 				pkg.impactDamageTotal += impact
 				pkg.hits += 1
@@ -445,7 +480,7 @@ local function sample(pkg: Package, now: number)
 		end
 	end
 	local tilt = Scoring.tiltAngle(root.CFrame.UpVector)
-	local tiltDamage = Scoring.tiltDamage(tilt, pkg.def.tiltLimit, pkg.def.tiltDamagePerSecond, dt)
+	local tiltDamage = Scoring.tiltDamage(tilt, pkg.def.tiltLimit, pkg.def.tiltDamagePerSecond, dt) * pkg.damageMultiplier
 	if tiltDamage > 0 then
 		damage += tiltDamage
 		pkg.tiltDamageTotal += tiltDamage
@@ -481,6 +516,13 @@ local function sample(pkg: Package, now: number)
 		else
 			pkg.farSince = nil
 		end
+	end
+
+	if pkg.mutation == "Haunted" and not pkg.holder and now >= pkg.nextHauntAt then
+		local range = Mutations.HAUNTED_INTERVAL
+		pkg.nextHauntAt = now + range[1] + math.random() * (range[2] - range[1])
+		local dir = Vector3.new(math.random() - 0.5, 0.6, math.random() - 0.5).Unit
+		root:ApplyImpulse(dir * Mutations.HAUNTED_IMPULSE * root.AssemblyMass)
 	end
 
 	PackageService.onSampled(pkg)

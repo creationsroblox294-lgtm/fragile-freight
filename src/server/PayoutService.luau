@@ -1,11 +1,13 @@
 -- Delivery scoring and anti-exploit validation (GDD §3.3, §5.1). Server only.
--- M0: no saving, so Coins live in leaderstats for the session.
+-- Coins and lifetime tips go through DataService, which saves them and mirrors leaderstats.
 
-local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Shared = ReplicatedStorage:WaitForChild("Shared")
 local Scoring = require(Shared.Scoring)
+local Tips = require(Shared.Config.Tips)
+local DataService = require(script.Parent.DataService)
+local GachaService = require(script.Parent.GachaService)
 
 local PayoutService = {}
 
@@ -14,33 +16,31 @@ export type Result = {
 	broke: boolean,
 	rejected: string?,
 	packageName: string,
+	packageId: string,
+	rarity: string,
+	mutation: string,
 	condition: number,
 	elapsed: number,
 	parTime: number,
 	payout: number,
 	tip: number,
 	tipMood: string,
+	tipPercent: number,
 	total: number,
 	timeBonus: number,
 	coins: number,
+	newIndex: boolean?, -- set by OrderService
 }
 
-local function coinsValue(player: Player): IntValue?
-	local stats = player:FindFirstChild("leaderstats")
-	return stats and stats:FindFirstChild("Coins") :: IntValue?
-end
-
 function PayoutService.award(player: Player, amount: number): number
-	local coins = coinsValue(player)
-	if not coins then
-		return 0
-	end
-	coins.Value += amount
-	return coins.Value
+	return DataService.addCoins(player, amount)
 end
 
 type Order = {
+	packageId: string,
 	packageName: string,
+	rarity: string,
+	mutation: string,
 	baseValue: number,
 	rarityMultiplier: number,
 	mutationMultiplier: number,
@@ -64,12 +64,16 @@ function PayoutService.score(player: Player, order: Order, condition: number, fl
 		broke = condition <= 0,
 		rejected = rejected,
 		packageName = order.packageName,
+		packageId = order.packageId,
+		rarity = order.rarity,
+		mutation = order.mutation,
 		condition = math.floor(condition + 0.5),
 		elapsed = elapsed,
 		parTime = order.parTime,
 		payout = 0,
 		tip = 0,
-		tipMood = "None", -- M1: GachaService tip roll
+		tipMood = "None",
+		tipPercent = 0,
 		total = 0,
 		timeBonus = 1,
 		coins = 0,
@@ -77,7 +81,14 @@ function PayoutService.score(player: Player, order: Order, condition: number, fl
 
 	if rejected then
 		warn(string.format("[PayoutService] rejected delivery from %s: %s", player.Name, rejected))
-	else
+	elseif result.delivered then
+		-- The customer's mood is rolled only for real deliveries (GDD §4.3).
+		local mood = GachaService.rollTip(condition)
+		result.tipMood = mood
+		result.tipPercent = Tips.byId[mood].tipPercent
+	end
+
+	if not rejected then
 		local p = Scoring.payout({
 			baseValue = order.baseValue,
 			rarityMultiplier = order.rarityMultiplier,
@@ -85,7 +96,7 @@ function PayoutService.score(player: Player, order: Order, condition: number, fl
 			condition = condition,
 			elapsed = elapsed,
 			parTime = order.parTime,
-			tipPercent = 0,
+			tipPercent = result.tipPercent,
 		})
 		result.payout = p.payout
 		result.tip = p.tip
@@ -93,35 +104,21 @@ function PayoutService.score(player: Player, order: Order, condition: number, fl
 		result.timeBonus = p.timeBonus
 	end
 	result.coins = PayoutService.award(player, result.total)
+	DataService.addTips(player, result.tip)
+	local profile = DataService.get(player)
+	if profile and result.delivered then
+		profile.deliveries += 1
+	end
 
 	-- GDD §9 per-delivery analytics. Printed for M0 playtests; AnalyticsService in M2.
 	print(string.format(
-		"[Delivery] %s %s cond=%d time=%.1fs par=%.1fs broke=%s paid=%d impactDmg=%.0f (%d hits) tiltDmg=%.0f%s",
-		player.Name, order.packageName, result.condition, elapsed, order.parTime,
+		"[Delivery] %s %s %s/%s tip=%s cond=%d time=%.1fs par=%.1fs broke=%s paid=%d impactDmg=%.0f (%d hits) tiltDmg=%.0f%s",
+		player.Name, order.packageName, order.rarity, order.mutation, result.tipMood, result.condition, elapsed, order.parTime,
 		tostring(result.broke), result.total,
 		breakdown and breakdown.impact or 0, breakdown and breakdown.hits or 0, breakdown and breakdown.tilt or 0,
 		rejected and (" REJECTED " .. rejected) or ""
 	))
 	return result
 end
-
-function PayoutService.init()
-	local function setup(player: Player)
-		local stats = Instance.new("Folder")
-		stats.Name = "leaderstats"
-		local coins = Instance.new("IntValue")
-		coins.Name = "Coins"
-		coins.Parent = stats
-		local deliveries = Instance.new("IntValue")
-		deliveries.Name = "Deliveries"
-		deliveries.Parent = stats
-		stats.Parent = player
-	end
-	Players.PlayerAdded:Connect(setup)
-	for _, p in Players:GetPlayers() do
-		setup(p)
-	end
-end
-
 
 return PayoutService
