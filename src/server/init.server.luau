@@ -9,6 +9,7 @@ local CharacterService = require(script.CharacterService)
 local PackageService = require(script.PackageService)
 local DataService = require(script.DataService)
 local OrderService = require(script.OrderService)
+local DepotService = require(script.DepotService)
 
 CollisionGroups.init()
 DataService.init()
@@ -25,5 +26,7 @@ end
 
 local map = MapBuilder.build(CharacterService.hazardHit)
 OrderService.init(map)
+DepotService.init()
+OrderService.setOnDelivered(DepotService.offer)
 
 print("[FragileFreight] server ready")

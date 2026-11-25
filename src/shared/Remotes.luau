@@ -10,6 +10,8 @@ local EVENTS = {
 	"RequestRagdoll", -- (reason: string) client detected a trip on its own character
 	"RequestGetUp", -- ()
 	"RequestRotate", -- () turn the carried package 90 degrees (fit ladders through doors)
+	"RequestDisplay", -- () put your last delivered package on a Depot pedestal (replaces the weakest if full)
+	"RequestRemoveDisplay", -- (slot: number) take an item off a pedestal
 	-- server -> client
 	"OrderRolled", -- (order: {packageId, displayName, destinationName, destination: BasePart, parTime})
 	"ConditionUpdate", -- (condition: number, lastHit: {deltaV, damage, source, hit}?)
@@ -18,6 +20,7 @@ local EVENTS = {
 	"CarryChanged", -- (package: Model?) you picked up / lost the package
 	"OrderRevealing", -- (reveal: {rarity, mutation, packageId, displayName, pityUsed}) crate-open starts
 	"Announcement", -- (text: string, color: Color3) server-wide banner
+	"OfflineEarnings", -- (coins: number, seconds: number) "While you were gone"
 	"ProfileSync", -- (snapshot) coins, tips, index, depot, pity, luck — for Index/Depot/odds UI
 }
 

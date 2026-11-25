@@ -16,6 +16,10 @@ local PackageService = require(script.Parent.PackageService)
 local PayoutService = require(script.Parent.PayoutService)
 local GachaService = require(script.Parent.GachaService)
 local DataService = require(script.Parent.DataService)
+local ProfileSync = require(script.Parent.ProfileSync)
+
+-- Set by init.server: called after every successful delivery (Depot offers a display slot).
+local onDelivered: (Player, { id: string, rarity: string, mutation: string }) -> () = function() end
 
 local OrderService = {}
 
@@ -76,6 +80,7 @@ local function finish(order: Order, condition: number)
 		local key = Gacha.indexKey(order.packageId, order.rarity, order.mutation)
 		result.newIndex = profile.index[key] == nil
 		profile.index[key] = (profile.index[key] or 0) + 1
+		onDelivered(order.player, { id = order.packageId, rarity = order.rarity, mutation = order.mutation })
 	end
 	OrderService.syncProfile(order.player)
 	if not order.package.broken then
@@ -174,21 +179,12 @@ local function takeOrder(player: Player, board: BasePart)
 	OrderService.syncProfile(player)
 end
 
--- Snapshot of saved state the UI needs (Index, Depot, odds). Read-only on the client.
 function OrderService.syncProfile(player: Player)
-	local profile = DataService.get(player)
-	if not profile or not player.Parent then
-		return
-	end
-	Remotes.get("ProfileSync"):FireClient(player, {
-		coins = profile.coins,
-		lifetimeTips = profile.lifetimeTips,
-		deliveries = profile.deliveries,
-		index = profile.index,
-		depot = profile.depot,
-		pity = profile.pity,
-		luck = GachaService.getLuck(player),
-	})
+	ProfileSync.send(player)
+end
+
+function OrderService.setOnDelivered(fn: (Player, { id: string, rarity: string, mutation: string }) -> ())
+	onDelivered = fn
 end
 
 function OrderService.init(map: { dispatchBoard: BasePart, destinations: { Destination } })
@@ -204,6 +200,19 @@ function OrderService.init(map: { dispatchBoard: BasePart, destinations: { Desti
 	prompt.Triggered:Connect(function(player)
 		takeOrder(player, map.dispatchBoard)
 	end)
+
+	-- Odds disclosure (GDD §4.4); the client opens the odds panel when this triggers.
+	local oddsPrompt = Instance.new("ProximityPrompt")
+	oddsPrompt.Name = "OddsPrompt"
+	oddsPrompt.ActionText = "View Odds"
+	oddsPrompt.ObjectText = "Dispatch"
+	oddsPrompt.KeyboardKeyCode = Enum.KeyCode.F
+	oddsPrompt.GamepadKeyCode = Enum.KeyCode.ButtonY
+	oddsPrompt.HoldDuration = 0
+	oddsPrompt.MaxActivationDistance = 12
+	oddsPrompt.RequiresLineOfSight = false
+	oddsPrompt.UIOffset = Vector2.new(0, 72)
+	oddsPrompt.Parent = map.dispatchBoard
 
 	PackageService.onSampled = function(pkg)
 		local order = orderByPackage[pkg.id]

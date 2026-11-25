@@ -15,6 +15,7 @@ local Mutations = require(Shared.Config.Mutations)
 local Tuning = require(Shared.Config.Tuning)
 local Scoring = require(Shared.Scoring)
 local Remotes = require(Shared.Remotes)
+local PackageBuilder = require(Shared.PackageBuilder)
 local CollisionGroups = require(script.Parent.CollisionGroups)
 
 local PackageService = {}
@@ -68,83 +69,6 @@ local packagesFolder: Folder
 
 local HOLD_POINT_NAME = "HoldPoint"
 local PICKUP_GRACE = 0.75 -- seconds without impact damage while the grip pulls the package in
-
-local function densityFor(mass: number, size: Vector3): number
-	return math.clamp(mass / (size.X * size.Y * size.Z), 0.01, 100)
-end
-
-local function buildModel(def: Packages.PackageDef, mutation: Mutations.MutationDef): (Model, BasePart)
-	local mass = def.mass * mutation.massMultiplier
-	local model = Instance.new("Model")
-	model.Name = def.id
-
-	local root = Instance.new("Part")
-	root.Name = "Root"
-	root.Size = def.rootSize
-	root.Transparency = 1
-	root.RootPriority = 10
-	root.CustomPhysicalProperties = PhysicalProperties.new(
-		densityFor(mass * (1 - def.ballastFraction), def.rootSize),
-		def.friction,
-		mutation.elasticity or def.elasticity,
-		1,
-		if mutation.elasticity then 100 else 1 -- Bouncy wins every contact
-	)
-	root.Parent = model
-	model.PrimaryPart = root
-
-	for _, spec in def.visual do
-		local count = spec.count or 1
-		local spacing = spec.spacing or 0
-		for i = 1, count do
-			local p = Instance.new("Part")
-			p.Name = spec.name
-			p.Shape = spec.shape or Enum.PartType.Block
-			p.Size = spec.size
-			p.Color = mutation.tint or spec.color
-			p.Material = mutation.material or spec.material or Enum.Material.SmoothPlastic
-			p.Transparency = spec.transparency or 0
-			if mutation.id == "Glass" then
-				p.Transparency = math.max(p.Transparency, 0.35)
-			end
-			p.CanCollide = false
-			p.CanQuery = false
-			p.Massless = true
-			p.TopSurface = Enum.SurfaceType.Smooth
-			p.BottomSurface = Enum.SurfaceType.Smooth
-			local along = (i - (count + 1) / 2) * spacing
-			local cf = root.CFrame * CFrame.new(spec.offset + Vector3.new(along, 0, 0))
-			if p.Shape == Enum.PartType.Cylinder then
-				cf *= CFrame.Angles(0, 0, math.pi / 2) -- cylinders run along X; stand them up
-			end
-			p.CFrame = cf
-			local weld = Instance.new("WeldConstraint")
-			weld.Part0 = root
-			weld.Part1 = p
-			weld.Parent = p
-			p.Parent = model
-		end
-	end
-
-	if def.ballastFraction > 0 then
-		local ballast = Instance.new("Part")
-		ballast.Name = "Ballast"
-		ballast.Size = Vector3.new(0.5, 0.5, 0.5)
-		ballast.Transparency = 1
-		ballast.CanCollide = false
-		ballast.CanQuery = false
-		ballast.CanTouch = false
-		ballast.CustomPhysicalProperties = PhysicalProperties.new(densityFor(mass * def.ballastFraction, ballast.Size))
-		ballast.CFrame = root.CFrame * CFrame.new(def.comOffset)
-		local weld = Instance.new("WeldConstraint")
-		weld.Part0 = root
-		weld.Part1 = ballast
-		weld.Parent = ballast
-		ballast.Parent = model
-	end
-
-	return model, root
-end
 
 local function getRootPart(player: Player): BasePart?
 	local character = player.Character
@@ -268,7 +192,7 @@ function PackageService.spawn(owner: Player, packageId: string, cframe: CFrame, 
 	local rarity = Rarities.byId[options and options.rarity or "Common"] or Rarities.byId.Common
 	local mutation = Mutations.byId[options and options.mutation or "None"] or Mutations.byId.None
 	assert(def, "Unknown package " .. packageId)
-	local model, root = buildModel(def, mutation)
+	local model, root = PackageBuilder.build(def, mutation)
 
 	if mutation.haunted then
 		-- Ghostly float: cancel part of gravity on the whole assembly.

@@ -3,7 +3,12 @@
 -- both sides, three customers at increasing distance, and a handful of hazards.
 
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+
+local Shared = ReplicatedStorage:WaitForChild("Shared")
+local Depot = require(Shared.Config.Depot)
+local DepotMath = require(Shared.DepotMath)
 
 local MapBuilder = {}
 
@@ -120,6 +125,54 @@ local function buildDepot(): BasePart
 		gui.Parent = board
 	end
 	return board
+end
+
+-- Depot (GDD §5.2): open-fronted hall with a pedestal grid. Shared by everyone; each client
+-- draws its own displayed packages on the pedestals.
+local function buildDepotHall()
+	local o = Depot.ORIGIN
+	local width, depth, height = 34, 30, 14
+	local wall = Color3.fromRGB(235, 225, 205)
+	local folder = Instance.new("Folder")
+	folder.Name = "Depot"
+	folder.Parent = mapFolder
+
+	part({ Name = "DepotFloor", Size = Vector3.new(width, 0.4, depth), Position = o + Vector3.new(0, 0.2, 0), Color = Color3.fromRGB(120, 100, 85), Material = Enum.Material.WoodPlanks, Parent = folder })
+	part({ Name = "DepotBack", Size = Vector3.new(1, height, depth), Position = o + Vector3.new(-width / 2, height / 2, 0), Color = wall, Parent = folder })
+	for _, side in { -1, 1 } do
+		part({ Name = "DepotSide", Size = Vector3.new(width, height, 1), Position = o + Vector3.new(0, height / 2, side * depth / 2), Color = wall, Parent = folder })
+	end
+	part({ Name = "DepotRoof", Size = Vector3.new(width + 2, 1, depth + 2), Position = o + Vector3.new(0, height + 0.5, 0), Color = Color3.fromRGB(70, 110, 170), Parent = folder })
+
+	local sign = part({ Name = "DepotSign", Size = Vector3.new(1, 4, 20), Position = o + Vector3.new(width / 2, height - 2, 0), Color = Color3.fromRGB(40, 90, 160), Parent = folder })
+	local gui = Instance.new("SurfaceGui")
+	gui.Name = "SignGui"
+	gui.Face = Enum.NormalId.Right
+	gui.CanvasSize = Vector2.new(500, 100)
+	local t = Instance.new("TextLabel")
+	t.Name = "Text"
+	t.Size = UDim2.fromScale(1, 1)
+	t.BackgroundTransparency = 1
+	t.Text = "MY DEPOT"
+	t.TextScaled = true
+	t.Font = Enum.Font.FredokaOne
+	t.TextColor3 = Color3.new(1, 1, 1)
+	t.Parent = gui
+	gui.Parent = sign
+
+	for i = 1, Depot.MAX_SLOTS do
+		local pos = DepotMath.pedestalPosition(i)
+		local pedestal = part({
+			Name = "Pedestal_" .. i,
+			Shape = Enum.PartType.Cylinder,
+			Size = Vector3.new(1.2, 3.6, 3.6),
+			CFrame = CFrame.new(pos + Vector3.new(0, 1, 0)) * CFrame.Angles(0, 0, math.pi / 2),
+			Color = Color3.fromRGB(215, 215, 225),
+			Material = Enum.Material.Marble,
+			Parent = folder,
+		})
+		pedestal:SetAttribute("Slot", i)
+	end
 end
 
 local function buildBlueHouse(): Destination
@@ -253,6 +306,7 @@ function MapBuilder.build(onHazardHit: (Player, Vector3) -> ()): Map
 
 	buildStreet()
 	local board = buildDepot()
+	buildDepotHall()
 	local destinations = { buildBlueHouse(), buildBakery(), buildPetShop() }
 	watchHazards(buildHazards(), onHazardHit)
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Build FragileFreight.rbxlx from src/ without Rojo (mirrors default.project.json).
 
-Usage: python3 scripts/build_rbxlx.py [output.rbxlx]
+Usage: python3 scripts/build_rbxlx.py [output.rbxlx] [--tests]
+  --tests also adds tests/ as ServerScriptService.Tests (specs run on Play, results in Output).
 Rojo is still the recommended workflow; this is for opening the game in Studio quickly.
 """
 import os
@@ -65,12 +66,19 @@ def build_dir(path, name, local=False):
 
 
 def main():
-    out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "FragileFreight.rbxlx")
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    with_tests = "--tests" in sys.argv
+    out = args[0] if args else os.path.join(ROOT, "FragileFreight.rbxlx")
     src = os.path.join(ROOT, "src")
     body = (
         item("Workspace", "Workspace")
         + item("ReplicatedStorage", "ReplicatedStorage", build_dir(os.path.join(src, "shared"), "Shared"))
-        + item("ServerScriptService", "ServerScriptService", build_dir(os.path.join(src, "server"), "Server"))
+        + item(
+            "ServerScriptService",
+            "ServerScriptService",
+            build_dir(os.path.join(src, "server"), "Server")
+            + (build_dir(os.path.join(ROOT, "tests"), "Tests") if with_tests else ""),
+        )
         + item(
             "StarterPlayer",
             "StarterPlayer",
