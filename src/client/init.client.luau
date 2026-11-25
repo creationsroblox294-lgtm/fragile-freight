@@ -5,12 +5,18 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local Remotes = require(ReplicatedStorage:WaitForChild("Shared").Remotes)
 local Hud = require(script.UI.Hud)
+local Reveal = require(script.UI.Reveal)
+local Announcer = require(script.UI.Announcer)
 local CarryController = require(script.CarryController)
 local RagdollController = require(script.RagdollController)
+local PackageFx = require(script.PackageFx)
 
 Hud.init()
+Reveal.init(Hud.getGui())
+Announcer.init(Hud.getGui())
 CarryController.init()
 RagdollController.init()
+task.spawn(PackageFx.init)
 
 Hud.onDrop = CarryController.drop
 Hud.onRotate = CarryController.rotate
@@ -35,6 +41,12 @@ RagdollController.onChanged = function(down)
 	end
 end
 
+Remotes.get("OrderRevealing").OnClientEvent:Connect(function(info)
+	Reveal.play(info)
+end)
+Remotes.get("Announcement").OnClientEvent:Connect(function(text, color)
+	Announcer.show(text, color)
+end)
 Remotes.get("OrderRolled").OnClientEvent:Connect(function(order)
 	Hud.setOrder(order)
 end)

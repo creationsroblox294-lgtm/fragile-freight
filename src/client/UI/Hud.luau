@@ -13,6 +13,10 @@ Hud.onGetUp = function() end
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Tuning = require(ReplicatedStorage:WaitForChild("Shared").Config.Tuning)
+local Rarities = require(ReplicatedStorage.Shared.Config.Rarities)
+local Mutations = require(ReplicatedStorage.Shared.Config.Mutations)
+local Tips = require(ReplicatedStorage.Shared.Config.Tips)
+local Theme = require(script.Parent.Theme)
 
 local player = Players.LocalPlayer
 local FONT = Enum.Font.FredokaOne
@@ -31,6 +35,10 @@ local getUpButton: TextButton
 local resultCard: Frame
 local resultTitle: TextLabel
 local resultBody: TextLabel
+local resultTip: TextLabel
+local resultNew: TextLabel
+local resultActions: Frame
+local tipsLabel: TextLabel
 
 local orderStartedAt: number? = nil
 local orderPar = 0
@@ -163,7 +171,16 @@ local function attachWaypoint()
 	highlight = h
 end
 
-function Hud.setOrder(order: { displayName: string, destinationName: string, destination: BasePart, parTime: number }?)
+function Hud.getGui(): ScreenGui
+	return gui
+end
+
+-- Container under the result card text for extra buttons (Depot "Display" lives here).
+function Hud.getResultActions(): Frame
+	return resultActions
+end
+
+function Hud.setOrder(order: { displayName: string, destinationName: string, destination: BasePart, parTime: number, rarity: string?, mutation: string? }?)
 	if not order then
 		orderPanel.Visible = false
 		orderStartedAt = nil
@@ -171,7 +188,11 @@ function Hud.setOrder(order: { displayName: string, destinationName: string, des
 		clearWaypoint()
 		return
 	end
-	orderTitle.Text = string.format("%s → %s", order.displayName, order.destinationName)
+	local rarity = Rarities.byId[order.rarity or "Common"] or Rarities.byId.Common
+	local mutation = Mutations.byId[order.mutation or "None"] or Mutations.byId.None
+	local prefix = rarity.displayName .. " " .. (if mutation.displayName ~= "" then mutation.displayName .. " " else "")
+	orderTitle.Text = string.format("%s%s → %s", prefix, order.displayName, order.destinationName)
+	orderTitle.TextColor3 = rarity.color
 	orderPar = order.parTime
 	orderStartedAt = os.clock()
 	destinationZone = order.destination
@@ -190,9 +211,32 @@ function Hud.setRagdolled(down: boolean)
 	getUpButton.Visible = down
 end
 
+-- Counts a label up from `from` to `to` for that slot-machine coin feel.
+local function countUp(label: TextLabel, from: number, to: number, format: string, duration: number)
+	local t0 = os.clock()
+	task.spawn(function()
+		while os.clock() - t0 < duration do
+			local k = (os.clock() - t0) / duration
+			k = 1 - (1 - k) ^ 3
+			label.Text = string.format(format, Theme.short(from + (to - from) * k))
+			task.wait()
+		end
+		label.Text = string.format(format, Theme.short(to))
+	end)
+end
+Hud.countUp = countUp
+
 function Hud.showResult(result: { [string]: any })
 	Hud.setOrder(nil)
 	Hud.setCarrying(false)
+	for _, child in resultActions:GetChildren() do
+		if child:IsA("GuiObject") then
+			child:Destroy()
+		end
+	end
+	resultTip.Text = ""
+	resultNew.Visible = false
+
 	if result.rejected then
 		resultTitle.Text = "Delivery rejected"
 		resultBody.Text = "Something looked off with that run."
@@ -200,21 +244,43 @@ function Hud.showResult(result: { [string]: any })
 		resultTitle.Text = "BROKEN!"
 		resultBody.Text = string.format("The %s didn't make it.\nConsolation: +%d Coins", result.packageName, result.total)
 	else
+		local rarity = Rarities.byId[result.rarity or "Common"] or Rarities.byId.Common
+		local mutation = Mutations.byId[result.mutation or "None"] or Mutations.byId.None
 		resultTitle.Text = "Delivered!"
-		local bonus = result.timeBonus > 1.001 and string.format("  (×%.2f speed bonus)", result.timeBonus) or ""
+		local bonus = result.timeBonus > 1.001 and string.format("  ×%.2f speed bonus", result.timeBonus) or ""
+		local name = rarity.displayName .. " " .. (if mutation.displayName ~= "" then mutation.displayName .. " " else "") .. result.packageName
 		resultBody.Text = string.format(
-			"%s · Condition %d%%\nTime %.1fs (par %ds)%s\n+%d Coins",
-			result.packageName, result.condition, result.elapsed, result.parTime, bonus, result.total
+			"%s\nCondition %d%% · %.1fs (par %ds)%s",
+			name, result.condition, result.elapsed, result.parTime, bonus
 		)
+		local mood = Tips.byId[result.tipMood]
+		if mood then
+			resultTip.TextColor3 = mood.color
+			resultTip.Text = if mood.tipPercent > 0
+				then string.format("%s %s customer tipped +%d%%  (+%d)", mood.emoji, mood.id, math.floor(mood.tipPercent * 100 + 0.5), result.tip)
+				else string.format("%s %s customer. No tip.", mood.emoji, mood.id)
+		end
+		resultNew.Visible = result.newIndex == true
+		if result.newIndex then
+			local s = resultNew:FindFirstChildOfClass("UIScale")
+			if s then
+				s.Scale = 2.5
+				TweenService:Create(s, TweenInfo.new(0.4, Enum.EasingStyle.Back), { Scale = 1 }):Play()
+			end
+		end
 	end
-	resultTitle.TextColor3 = result.broke and Color3.fromRGB(255, 110, 100) or Color3.fromRGB(140, 255, 150)
+	resultTitle.TextColor3 = if result.broke or result.rejected then Theme.BAD else Theme.GOOD
 	resultCard.Visible = true
 	resultCard.Position = UDim2.fromScale(0.5, 0.42)
 	TweenService:Create(resultCard, TweenInfo.new(0.35, Enum.EasingStyle.Back), { Position = UDim2.fromScale(0.5, 0.38) }):Play()
 
+	-- Coins land with a count-up on the card.
+	local coinsLine = resultCard:FindFirstChild("CoinsLine") :: TextLabel
+	countUp(coinsLine, 0, result.total, "+%s Coins", 0.9)
+
 	resultToken += 1
 	local token = resultToken
-	task.delay(4.5, function()
+	task.delay(6, function()
 		if token == resultToken then
 			resultCard.Visible = false
 		end
@@ -228,12 +294,35 @@ local function build()
 	gui.IgnoreGuiInset = false
 	gui.Parent = player:WaitForChild("PlayerGui")
 
-	coinsLabel = text(gui, {
-		Size = UDim2.fromOffset(220, 44),
-		Position = UDim2.new(0, 16, 0, 12),
-		Text = "Coins: 0",
+	-- Scale the whole HUD to the screen so phones and monitors both read well.
+	local uiScale = Instance.new("UIScale")
+	uiScale.Parent = gui
+	local function rescale()
+		local camera = workspace.CurrentCamera
+		if camera then
+			uiScale.Scale = math.clamp(camera.ViewportSize.Y / 760, 0.6, 1.25)
+		end
+	end
+	rescale()
+	if workspace.CurrentCamera then
+		workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(rescale)
+	end
+
+	local wallet = Theme.panel(gui, UDim2.fromOffset(210, 74), UDim2.fromOffset(12, 10))
+	coinsLabel = Theme.label(wallet, {
+		Size = UDim2.new(1, -20, 0, 36),
+		Position = UDim2.fromOffset(10, 4),
+		Text = "🪙 0",
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextColor3 = Color3.fromRGB(255, 220, 90),
+		TextColor3 = Theme.GOLD,
+	})
+	Theme.stroke(coinsLabel, Color3.new(0, 0, 0), 2)
+	tipsLabel = Theme.label(wallet, {
+		Size = UDim2.new(1, -20, 0, 24),
+		Position = UDim2.fromOffset(10, 42),
+		Text = "Lifetime tips: 0",
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextColor3 = Theme.MUTED,
 	})
 
 	orderPanel = Instance.new("Frame")
@@ -284,7 +373,7 @@ local function build()
 	end)
 
 	resultCard = Instance.new("Frame")
-	resultCard.Size = UDim2.fromOffset(420, 190)
+	resultCard.Size = UDim2.fromOffset(440, 290)
 	resultCard.AnchorPoint = Vector2.new(0.5, 0.5)
 	resultCard.Position = UDim2.fromScale(0.5, 0.38)
 	resultCard.BackgroundColor3 = Color3.fromRGB(25, 30, 45)
@@ -293,14 +382,48 @@ local function build()
 	corner(resultCard, 16)
 	resultCard.Parent = gui
 	resultTitle = text(resultCard, { Size = UDim2.new(1, -20, 0, 56), Position = UDim2.fromOffset(10, 10) })
+	Theme.stroke(resultCard, Color3.new(1, 1, 1), 1.5, 0.8)
 	resultBody = text(resultCard, {
-		Size = UDim2.new(1, -30, 0, 104),
-		Position = UDim2.fromOffset(15, 72),
+		Size = UDim2.new(1, -30, 0, 60),
+		Position = UDim2.fromOffset(15, 66),
 		TextScaled = false,
 		TextSize = 22,
 		TextWrapped = true,
 		TextStrokeTransparency = 1,
 	})
+	resultTip = text(resultCard, {
+		Size = UDim2.new(1, -30, 0, 26),
+		Position = UDim2.fromOffset(15, 130),
+		TextStrokeTransparency = 1,
+	})
+	local coinsLine = text(resultCard, {
+		Name = "CoinsLine",
+		Size = UDim2.new(1, -30, 0, 40),
+		Position = UDim2.fromOffset(15, 160),
+		TextColor3 = Theme.GOLD,
+	})
+	coinsLine.Name = "CoinsLine"
+	resultNew = text(resultCard, {
+		Size = UDim2.fromOffset(120, 40),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, 10, 0, -14),
+		Rotation = 12,
+		Text = "NEW!",
+		TextColor3 = Theme.GOLD,
+		Visible = false,
+	})
+	Instance.new("UIScale").Parent = resultNew
+	Theme.stroke(resultNew, Color3.fromRGB(120, 60, 0), 3)
+	resultActions = Instance.new("Frame")
+	resultActions.BackgroundTransparency = 1
+	resultActions.Size = UDim2.new(1, -30, 0, 60)
+	resultActions.Position = UDim2.fromOffset(15, 214)
+	local layout = Instance.new("UIListLayout")
+	layout.FillDirection = Enum.FillDirection.Horizontal
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.Padding = UDim.new(0, 10)
+	layout.Parent = resultActions
+	resultActions.Parent = resultCard
 end
 
 function Hud.init()
@@ -309,11 +432,18 @@ function Hud.init()
 	task.spawn(function()
 		local stats = player:WaitForChild("leaderstats")
 		local coins = stats:WaitForChild("Coins") :: IntValue
-		local function update()
-			coinsLabel.Text = "Coins: " .. coins.Value
+		local tips = stats:WaitForChild("Tips") :: IntValue
+		local shown = coins.Value
+		coinsLabel.Text = "🪙 " .. Theme.short(shown)
+		coins.Changed:Connect(function()
+			countUp(coinsLabel, shown, coins.Value, "🪙 %s", 0.8)
+			shown = coins.Value
+		end)
+		local function updateTips()
+			tipsLabel.Text = "Lifetime tips: " .. Theme.short(tips.Value)
 		end
-		coins.Changed:Connect(update)
-		update()
+		tips.Changed:Connect(updateTips)
+		updateTips()
 	end)
 
 	-- The beam's start attachment lives on the character, so re-attach after a respawn.
